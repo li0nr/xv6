@@ -449,3 +449,69 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+
+void
+vmprintaux(pagetable_t page, int level, char** indent)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  // char* newindent = indent + ".. "; 
+  for(int i = 0; i < 512; i++){
+    pte_t pte = page[i];
+    if(pte & PTE_V){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      printf("%s%d: pte %p pa %p\n", indent[level], i, pte, child);
+      if (pte & PTE_A) {
+        printf("accessed");
+      }
+      if (level < 2) //dont go past last level, little ugly but gets the job done
+        vmprintaux((pagetable_t)child, level+1, indent);
+    } 
+  }
+}
+
+void 
+vmprint(pagetable_t pagetable)
+{
+  char* indent[3] = {" ..", " .. .."," .. .. .."};
+  printf("page table %p\n", pagetable); 
+  vmprintaux(pagetable, 0 ,indent);
+}
+
+void
+vmpageaccess(pagetable_t pagetable, uint64 va, uint32 pages, int* mask)
+{
+  uint32 pages2check = pages;
+  pagetable_t startingpage = pagetable;
+  uint8 check_page = 1;
+  *mask = 0;
+  while(pages > 0) {
+    pagetable = startingpage;
+    if(va >= MAXVA)
+      panic("vmpageaccess");
+    for(int level = 2; level > 0; level--) {
+      pte_t *pte = &pagetable[PX(level, va)];
+      if(*pte & PTE_V) {
+        pagetable = (pagetable_t)PTE2PA(*pte);
+      }else {
+        //if while walking we have unmapped mem, we dont count it.
+        check_page = 0;
+        break;
+      }
+    }
+    if (check_page == 1) {
+      pte_t *pte = &pagetable[PX(0, va)];
+      if(*pte & PTE_A) {
+        *mask = *mask | (1 << (pages2check-pages));
+        // printf("page num %d, accessed, pte=%p, changed pte=%p\n", pages2check-pages, *pte, *pte &  (~PTE_A));
+        *pte = *pte &  (~PTE_A);
+        // printf("page num %d, accessed, pte=%p\n", pages2check-pages, *pte);
+
+      }
+    }
+    check_page = 1;
+    pages--;
+    va = va + PGSIZE;
+    }
+}
