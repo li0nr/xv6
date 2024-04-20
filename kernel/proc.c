@@ -145,6 +145,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  p->sigalarm.curr_ticks = 0;
+  p->sigalarm.interval_ticks = 0;
+  p->sigalarm.handler = 0;
+  p->sigalarm.stop = 1;
 
   return p;
 }
@@ -686,3 +690,15 @@ procdump(void)
     printf("\n");
   }
 }
+
+void
+proc_sigalarm(int interval_ticks, void *func_ptr)
+{
+  if (interval_ticks == 0 && func_ptr == 0) {
+    myproc()->sigalarm.stop = 1;
+  }
+  myproc()->sigalarm.interval_ticks = interval_ticks;
+  myproc()->sigalarm.handler = func_ptr;
+  return;
+}
+

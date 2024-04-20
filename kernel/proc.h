@@ -81,6 +81,14 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct sigalarm {
+  uint32 interval_ticks;
+  uint32 curr_ticks;
+  uint32 stop;
+  void *handler;
+  struct trapframe frame; //we can allcoate from kmalloc
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -104,4 +112,5 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct sigalarm sigalarm;
 };
