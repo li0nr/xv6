@@ -23,11 +23,16 @@ struct {
   struct run *freelist;
 } kmem;
 
+uint8 index_frames;
+uint32 frame_refcount[FRAME_NUMBER];
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  index_frames = 1;
   freerange(end, (void*)PHYSTOP);
+  index_frames = 0;
 }
 
 void
@@ -35,8 +40,9 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
@@ -51,12 +57,25 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
 
   acquire(&kmem.lock);
+  uint64 index = PA2INDEX(pa,end);
+  if (index > FRAME_NUMBER) {
+    panic("free");
+  }
+  if (index_frames) {
+    frame_refcount[index] = 0;
+  } else {
+    if (--frame_refcount[index] != 0) {
+      printf("--index=%d, count=%d\n",index, frame_refcount[index]);
+      release(&kmem.lock);
+      return;
+    }
+  }
+  // Fill with junk to catch dangling refs.
+  memset(pa, 0, PGSIZE);
   r->next = kmem.freelist;
   kmem.freelist = r;
   release(&kmem.lock);
@@ -72,11 +91,32 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  uint64 index = PA2INDEX(r,end);
+  // if (index > FRAME_NUMBER) {
+  //   printf("%p, index=%d", r, index);
+  //   panic("alloc");
+  // }
+  if(r) {
+    if (frame_refcount[index] != 0)
+      panic("allocating not free page");
     kmem.freelist = r->next;
+    frame_refcount[index]++;
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+void
+inc_frame_refcount(void *pa)
+{
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kfree");
+  acquire(&kmem.lock);
+  uint64 index = PA2INDEX((uint64)pa,end);
+  frame_refcount[index]++;
+  printf("++refcont %d, count=%d\n", index, frame_refcount[index]);
+  release(&kmem.lock);
 }

@@ -6,8 +6,8 @@
 // 00001000 -- boot ROM, provided by qemu
 // 02000000 -- CLINT
 // 0C000000 -- PLIC
-// 10000000 -- uart0 
-// 10001000 -- virtio disk 
+// 10000000 -- uart0
+// 10001000 -- virtio disk
 // 80000000 -- boot ROM jumps here in machine mode
 //             -kernel loads the kernel here
 // unused RAM after 80000000.
@@ -43,6 +43,7 @@
 // from physical address 0x80000000 to PHYSTOP.
 #define KERNBASE 0x80000000L
 #define PHYSTOP (KERNBASE + 128*1024*1024)
+#define FRAME_NUMBER ((PHYSTOP - KERNBASE)/PGSIZE)
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.
