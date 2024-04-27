@@ -55,7 +55,7 @@ kfree(void *pa)
   struct run *r;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
-    panic("kfree");
+    panic("kfree :");
 
 
   r = (struct run*)pa;
@@ -69,7 +69,7 @@ kfree(void *pa)
     frame_refcount[index] = 0;
   } else {
     if (--frame_refcount[index] != 0) {
-      printf("--index=%d, count=%d\n",index, frame_refcount[index]);
+      // printf("--index=%d, count=%d\n",index, frame_refcount[index]);
       release(&kmem.lock);
       return;
     }
@@ -109,14 +109,30 @@ kalloc(void)
   return (void*)r;
 }
 
+int
+get_frame_refcount(void *pa)
+{
+  acquire(&kmem.lock);
+  uint64 index = PA2INDEX((uint64)pa,end);
+  uint64 ref = frame_refcount[index];
+  // printf("++refcont %d, count=%d\n", index, frame_refcount[index]);
+  release(&kmem.lock);
+  return ref;
+}
+
 void
 inc_frame_refcount(void *pa)
 {
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
-    panic("kfree");
+
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP) {
+    uint64 index = PA2INDEX((uint64)pa,end);
+    printf("++refcont %d, count=%d\n", index);
+    printf("%p pa, %p end\n", pa, end);
+    panic("inc frame ref");
+  }
   acquire(&kmem.lock);
   uint64 index = PA2INDEX((uint64)pa,end);
   frame_refcount[index]++;
-  printf("++refcont %d, count=%d\n", index, frame_refcount[index]);
+  // printf("++refcont %d, count=%d\n", index, frame_refcount[index]);
   release(&kmem.lock);
 }
