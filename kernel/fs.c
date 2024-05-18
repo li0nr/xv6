@@ -416,10 +416,59 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  bn -= NINDIRECT;
+  if(bn < DINDIRECT) {
+    uint block = bn / NINDIRECT;
+    uint offset = bn % NINDIRECT;
 
+    if ((addr = ip->addrs[NDIRECT+1]) == 0){
+      addr = balloc(ip->dev);
+      if(addr == 0)
+        return 0;
+      ip->addrs[NDIRECT+1] = addr;
+    }
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[block]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[block] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+    if (addr == 0 )
+      return 0;
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    if ((addr = a[offset]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr) {
+        a[offset] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
+//frees the block entries.
+//assumes that the entries pointed by the block are freeed.
+void helper_trunc(uint dev, uint blockno)
+{
+  struct buf *bp;
+  uint *a;
+    bp = bread(dev, blockno);
+    a = (uint*)bp->data;
+    for(int j = 0; j < NINDIRECT; j++){
+      if(a[j])
+        bfree(dev, a[j]);
+    }
+    brelse(bp);
+    bfree(dev, blockno);
+}
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
 void
@@ -446,6 +495,20 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  if (ip->addrs[NDIRECT+1]) {
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    a = (uint*)bp->data;
+    for ( i = 0; i < NINDIRECT; i++) {
+      if (a[i]){
+       helper_trunc(ip->dev, a[i]);
+        a[i] = 0;
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1] = 0;
   }
 
   ip->size = 0;
