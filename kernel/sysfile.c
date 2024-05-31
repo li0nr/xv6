@@ -349,6 +349,89 @@ sys_open(void)
     return -1;
   }
 
+  // // printf("curr path to open %s\n", path);
+  // if ((ip->type == T_SYMLINK) && !(omode & O_NOFOLLOW)) {//follow symlink untill reaching the file or break.
+  //   int count = 0;
+  //   while (ip->type == T_SYMLINK && count < FSCYCLE) {
+  //     int len = 0;
+  //     readi(ip, 0, (uint64)&len, 0, sizeof(int));
+  //
+  //     if (len > MAXPATH)
+  //       panic("len is bigger than maxpath");
+  //
+  //     readi(ip, 0, (uint64)path, sizeof(int), len + 1);
+  //     iunlockput(ip);
+  //     if ((ip = namei(path)) == 0) {
+  //       end_op();
+  //       return -1;
+  //     }
+  //     ilock(ip);
+  //     if (ip->type == T_DIR && omode != O_RDONLY) {
+  //       iunlockput(ip);
+  //       end_op();
+  //       return -1;
+  //     }
+  //
+  //     if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)) {
+  //       iunlockput(ip);
+  //       end_op();
+  //       return -1;
+  //     }
+  //
+  //     count++;
+  //   }
+  //   if (count >= FSCYCLE) {
+  //     printf("detected a cycle !\n");
+  //     iunlockput(ip);
+  //     end_op();
+  //     return -1;
+  //   }
+  // }
+
+    // resolve symlink
+  if(!(omode & O_NOFOLLOW)) {
+    uint cnt = 0;
+    while(ip->type == T_SYMLINK && cnt < 10) {
+      int len = 0;
+      readi(ip, 0, (uint64)&len, 0, sizeof(int));
+
+      if(len > MAXPATH)
+        panic("open: corrupted symlink inode");
+
+      readi(ip, 0, (uint64)path, sizeof(int), len + 1);
+      iunlockput(ip);
+
+      if((ip = namei(path)) == 0){
+        end_op();
+        return -1;
+      }
+
+      ilock(ip);
+
+      if(ip->type == T_DIR && omode != O_RDONLY){
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+
+      if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+
+      // printf("open: resolve symlink -> %s len=%d\n", path, len);
+
+      cnt++;
+    }
+
+    if(cnt >= 10) {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
@@ -503,3 +586,66 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_symlink(void)
+{
+  char path[DIRSIZ], target[MAXPATH];
+  struct inode  *target_ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  //no need to check for existing file. we can symlink to nothing
+  // if((ip = namei(path)) == 0){
+  //   end_op();
+  //   return -1;
+  // }
+  //
+  // ilock(ip);
+  // if(ip->type == T_DIR){
+  //   printf("not-supported");
+  //   iunlockput(ip);
+  //   end_op();
+  //   return -1;
+  // }
+  // iunlockput(ip);
+
+  //assuming that create fails if the target already exists
+  // printf("curr path to create is=%s\n", path);
+  target_ip = create(path, T_SYMLINK , 0, 0);
+  if(target_ip == 0){
+    end_op();
+    return -1;
+  }
+  //no need to hold lock since we successfuly allocated the target_ip, and no one else has a ref for it.
+  int fd;
+  struct file *f;
+
+  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
+    if(f)
+      fileclose(f);
+    iunlockput(target_ip);
+    end_op();
+    return -1;
+  }
+
+  f->type = FD_INODE;
+  f->off = 0;
+  f->ip = target_ip;
+  f->readable = 0; //these values depends on how we want to procces stuff on opne?
+  f->writable = 0;
+
+  int len = strlen(target);
+  writei(target_ip, 0, (uint64)&len  , 0          , sizeof(int));//writing the path len. can we forgo this by doing a macro for len?
+  writei(target_ip, 0, (uint64)target, sizeof(int), len + 1); //writing the name + null to the inode data
+  iupdate(target_ip);
+  // printf("inode %dtype =%d\n", target_ip->inum, target_ip->type);
+
+  iunlockput(target_ip);
+  end_op();
+  return 0;
+
+}
+

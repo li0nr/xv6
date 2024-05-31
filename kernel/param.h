@@ -23,5 +23,6 @@
 #endif
 #endif
 #define MAXPATH      128   // maximum file path name
+#define FSCYCLE      10 //maximum depth of symlink
 
 
