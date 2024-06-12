@@ -14,6 +14,7 @@ struct entry {
   struct entry *next;
 };
 struct entry *table[NBUCKET];
+pthread_mutex_t lock[NBUCKET]; // used more than 1 lock, to make contension less.
 int keys[NKEYS];
 int nthread = 1;
 
@@ -26,7 +27,7 @@ now()
  return tv.tv_sec + tv.tv_usec / 1000000.0;
 }
 
-static void 
+static void
 insert(int key, int value, struct entry **p, struct entry *n)
 {
   struct entry *e = malloc(sizeof(struct entry));
@@ -36,7 +37,7 @@ insert(int key, int value, struct entry **p, struct entry *n)
   *p = e;
 }
 
-static 
+static
 void put(int key, int value)
 {
   int i = key % NBUCKET;
@@ -51,8 +52,11 @@ void put(int key, int value)
     // update the existing key.
     e->value = value;
   } else {
+    pthread_mutex_lock(&lock[i]);
     // the new is new.
+    // here we could lose pointer when more than one thread performs this step.
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&lock[i]);
   }
 
 }
@@ -117,6 +121,8 @@ main(int argc, char *argv[])
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
   }
+  for (int i = 0; i < NBUCKET; ++i)
+    pthread_mutex_init(&lock[i], NULL);
 
   //
   // first the puts
@@ -130,7 +136,7 @@ main(int argc, char *argv[])
   }
   t1 = now();
 
-  printf("%d puts, %.3f seconds, %.0f puts/second\n",
+  printf("%d puts, %.3f seconds, %.0f puts/second xd\n",
          NKEYS, t1 - t0, NKEYS / (t1 - t0));
 
   //
